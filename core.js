@@ -56,7 +56,8 @@
     return STORAGES.indexOf(s) === -1 ? DEFAULT_STORAGE : s;
   }
 
-  // Seeded sample receipt — the deterministic demo path. prices in RM.
+  // Test fixture only: a fixed receipt so the shelf-life and ordering tests are
+  // deterministic. The UI never loads this — a visitor's pantry starts empty.
   var DEMO_RECEIPT = [
     { name: 'Ayam (chicken breast)', category: 'poultry',  qty: '500 g', unit: 'pack', price: 9.80, shelfDays: 2, purchasedDaysAgo: 1 },
     { name: 'Bayam (spinach)',        category: 'greens',   qty: '1',     unit: 'bunch', price: 3.20, shelfDays: 3, purchasedDaysAgo: 2 },
