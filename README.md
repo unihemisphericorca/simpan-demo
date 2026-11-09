@@ -1,11 +1,25 @@
 # Simpan — receipt to pantry
 
-A small offline-first web app: read a grocery receipt, track shelf life, get a
-"use this first" list, and see what you rescued vs binned in ringgit.
+Offline-first demo: photograph a receipt, get a pantry sorted by what expires first, with
+shelf life that changes depending on whether food is in the pantry, the fridge or the freezer.
 
-Static three-file build (HTML/CSS/JS), no backend, no accounts, no network calls.
-Built as a demo for SigmaHack KL 2026.
+- **Live demo:** https://unihemisphericorca.github.io/simpan-demo/
+- **No framework, no build step, no network calls.**
 
-- `index.html` — UI
-- `core.js` — shelf-life engine + hostile-file validation (unit tested)
-- `style.css` — styles
+## Run the tests
+
+```bash
+node --test tests/regression.test.js    # 19 tests
+node tools/bench.js                     # hostile-file + shelf-life benchmark
+```
+
+## Files
+
+| File | What it holds |
+|---|---|
+| `core.js` | All logic: shelf-life table, ordering, ledger, receipt validation |
+| `index.html` | The UI |
+| `style.css` | Styling |
+| `tests/regression.test.js` | 19 tests, including the storage-location behaviour |
+| `tools/bench.js` | Benchmark over malformed receipt files |
+| `fixtures/` | Deliberately broken receipt files used by the tests |
