@@ -124,3 +124,12 @@ h2 { font-size: 15px; margin: 0 0 6px; }
 .empty .big { font-size: 30px; display: block; margin-bottom: 6px; }
 .rank { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
 .footer { color: var(--muted); font-size: 11px; text-align: center; padding: 10px; }
+
+/* storage location control — where the food lives changes the clock */
+.store { display: flex; gap: 4px; margin-top: 6px; }
+.store button {
+  border: 1px solid var(--line); background: #fff; color: var(--muted);
+  font-size: 10px; letter-spacing: .3px; text-transform: uppercase; font-weight: 600;
+  padding: 3px 7px; border-radius: 20px; cursor: pointer; line-height: 1.4;
+}
+.store button.on { background: var(--accent); border-color: var(--accent); color: #fff; }

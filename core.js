@@ -20,23 +20,41 @@
   var MAX_BYTES = 5 * 1024 * 1024;      // 5 MB receipt-photo cap
   var MIN_DIM = 200;                     // smallest plausible receipt photo edge
 
-  // Conservative "typical fridge" shelf-life heuristic (days), keyed by category.
-  // This is an estimate for the demo, not a food-safety claim.
-  var CATEGORY_DAYS = {
-    'poultry': 2,
-    'fish': 2,
-    'meat': 3,
-    'veg': 4,
-    'greens': 3,
-    'fruit': 5,
-    'bakery': 4,
-    'dairy': 7,
-    'eggs': 21,
-    'dry': 180,
-    'frozen': 180,
-    'drinks': 180,
-    'other': 7
+  // Where food is kept changes how long it lasts. Values are days for a
+  // category in each storage place; `fridge` is the baseline the demo assumes.
+  // Conservative heuristics for the demo, not a food-safety claim.
+  var STORAGE_DAYS = {
+    poultry: { pantry: 1,  fridge: 2,   freezer: 180 },
+    fish:    { pantry: 1,  fridge: 2,   freezer: 180 },
+    meat:    { pantry: 1,  fridge: 3,   freezer: 180 },
+    veg:     { pantry: 2,  fridge: 4,   freezer: 240 },
+    greens:  { pantry: 1,  fridge: 3,   freezer: 240 },
+    fruit:   { pantry: 3,  fridge: 5,   freezer: 300 },
+    bakery:  { pantry: 3,  fridge: 4,   freezer: 90  },
+    dairy:   { pantry: 1,  fridge: 7,   freezer: 60  },
+    eggs:    { pantry: 7,  fridge: 21,  freezer: 365 },
+    dry:     { pantry: 180, fridge: 180, freezer: 730 },
+    frozen:  { pantry: 1,  fridge: 3,   freezer: 365 },
+    drinks:  { pantry: 90, fridge: 180, freezer: 365 },
+    other:   { pantry: 3,  fridge: 7,   freezer: 60  }
   };
+
+  var STORAGES = ['pantry', 'fridge', 'freezer'];
+  var DEFAULT_STORAGE = 'fridge';
+
+  // Backward-compatible view of the same table (fridge values).
+  var CATEGORY_DAYS = {};
+  Object.keys(STORAGE_DAYS).forEach(function (k) { CATEGORY_DAYS[k] = STORAGE_DAYS[k][DEFAULT_STORAGE]; });
+
+  function normalizeCategory(category) {
+    var c = (category || 'other').toLowerCase();
+    return Object.prototype.hasOwnProperty.call(STORAGE_DAYS, c) ? c : 'other';
+  }
+
+  function normalizeStorage(storage) {
+    var s = (storage || DEFAULT_STORAGE).toLowerCase();
+    return STORAGES.indexOf(s) === -1 ? DEFAULT_STORAGE : s;
+  }
 
   // Seeded sample receipt — the deterministic demo path. prices in RM.
   var DEMO_RECEIPT = [
@@ -50,14 +68,32 @@
     { name: 'Minyak Masak (oil)',     category: 'dry',      qty: '1 L',   unit: 'bottle', price: 9.90, shelfDays: 365, purchasedDaysAgo: 0 }
   ];
 
-  function shelfDaysFor(category) {
-    var c = (category || 'other').toLowerCase();
-    return Object.prototype.hasOwnProperty.call(CATEGORY_DAYS, c) ? CATEGORY_DAYS[c] : CATEGORY_DAYS.other;
+  // Days a category lasts in a given storage. Default arg keeps the old
+  // one-argument call working (fridge baseline).
+  function shelfDaysFor(category, storage) {
+    var c = normalizeCategory(category);
+    var s = storage === undefined ? DEFAULT_STORAGE : normalizeStorage(storage);
+    return STORAGE_DAYS[c][s];
+  }
+
+  // Ratio of a storage place to the fridge baseline, so an item's explicit
+  // shelfDays (measured in a fridge) can be scaled when it moves.
+  function storageRatio(category, storage) {
+    var c = normalizeCategory(category);
+    var s = normalizeStorage(storage);
+    return STORAGE_DAYS[c][s] / STORAGE_DAYS[c][DEFAULT_STORAGE];
+  }
+
+  function effectiveShelfDays(item) {
+    var base = item.shelfDays != null ? item.shelfDays : shelfDaysFor(item.category);
+    var scaled = base * storageRatio(item.category, item.storage);
+    return Math.max(0, Math.round(scaled));
   }
 
   function daysLeftOf(item) {
-    return (item.shelfDays != null ? item.shelfDays : shelfDaysFor(item.category)) - (item.purchasedDaysAgo || 0);
+    return effectiveShelfDays(item) - (item.purchasedDaysAgo || 0);
   }
+
 
   function statusOf(daysLeft) {
     if (daysLeft < 0) return 'expired';
@@ -85,7 +121,8 @@
         qty: r.qty != null ? String(r.qty) : '',
         unit: r.unit || '',
         price: typeof r.price === 'number' ? r.price : 0,
-        shelfDays: r.shelfDays != null ? r.shelfDays : shelfDaysFor(r.category),
+        shelfDays: r.shelfDays != null ? r.shelfDays : shelfDaysFor(r.category, r.storage),
+        storage: normalizeStorage(r.storage),
         purchasedDaysAgo: r.purchasedDaysAgo || 0,
         daysLeft: dl,
         status: statusOf(dl),
@@ -109,6 +146,22 @@
   }
   function markUsed(pantry, id) { return setDisposition(pantry, id, 'used'); }
   function markTossed(pantry, id) { return setDisposition(pantry, id, 'tossed'); }
+
+  // Move an item to another storage place and recompute its expiry. Immutable:
+  // returns a new pantry, the input is untouched.
+  function setStorage(pantry, id, storage) {
+    var target = normalizeStorage(storage);
+    return (pantry || []).map(function (it) {
+      if (it.id !== id) return it;
+      var moved = Object.assign({}, it, { storage: target });
+      var dl = daysLeftOf(moved);
+      return Object.assign(moved, {
+        daysLeft: dl,
+        status: statusOf(dl),
+        expiryLabel: expiryLabel(dl)
+      });
+    });
+  }
 
   // Aggregates for the waste/savings ledger + recap. Never divides by zero.
   function summary(pantry) {
@@ -197,6 +250,9 @@
     MAX_BYTES: MAX_BYTES,
     MIN_DIM: MIN_DIM,
     CATEGORY_DAYS: CATEGORY_DAYS,
+    STORAGE_DAYS: STORAGE_DAYS,
+    STORAGES: STORAGES,
+    DEFAULT_STORAGE: DEFAULT_STORAGE,
     DEMO_RECEIPT: DEMO_RECEIPT,
     shelfDaysFor: shelfDaysFor,
     daysLeftOf: daysLeftOf,
@@ -206,6 +262,8 @@
     useFirstList: useFirstList,
     markUsed: markUsed,
     markTossed: markTossed,
+    setStorage: setStorage,
+    effectiveShelfDays: effectiveShelfDays,
     summary: summary,
     sniffImage: sniffImage,
     validateReceiptFile: validateReceiptFile

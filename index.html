@@ -88,10 +88,28 @@
       html += '<div class="item">' +
         '<div class="info"><div class="name">' + esc(it.name) + '</div>' +
         '<div class="meta">' + esc(it.qty + (it.unit ? ' ' + it.unit : '')) + ' · ' + esc(it.category) + '</div>' +
-        chip(it) + '</div>' +
+        chip(it) + storeCtl(it) + '</div>' +
         '<div class="price">RM ' + it.price.toFixed(2) + '</div></div>';
     });
     card.innerHTML = html;
+    Array.prototype.forEach.call(card.querySelectorAll('.store button'), function (b) {
+      b.addEventListener('click', function () {
+        pantry = C.setStorage(pantry, b.getAttribute('data-id'), b.getAttribute('data-storage'));
+        render();
+      });
+    });
+  }
+
+  // Where the food is kept — this is what changes how long it lasts.
+  function storeCtl(it) {
+    if (it.disposition !== null) return '';
+    var order = C.STORAGES;
+    var html = '<div class="store">';
+    order.forEach(function (s) {
+      html += '<button data-id="' + esc(it.id) + '" data-storage="' + esc(s) + '"' +
+        (it.storage === s ? ' class="on"' : '') + '>' + esc(s) + '</button>';
+    });
+    return html + '</div>';
   }
 
   function renderUseFirst() {
