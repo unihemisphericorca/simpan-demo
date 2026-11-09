@@ -223,3 +223,89 @@ test('moving to freezer reorders the use-first list', () => {
   assert.deepStrictEqual(after, ['Beras', 'Ayam'], 'frozen item drops behind the rice');
 });
 
+
+// ---- real input: pasted receipt text ----
+test('parseReceiptText reads common Malaysian receipt lines', () => {
+  const raw = [
+    'CARREFOUR MARKET',
+    'AYAM BERSIH 500G        9.80',
+    'BAYAM                   3.20',
+    'SUSU SEGAR 1L            7.50',
+    'ROTI GANDUM              4.50',
+    'SUBTOTAL                25.00',
+    'SST                      0.00',
+    'TOTAL                   25.00',
+    'TUNAI                   50.00',
+    'CHANGE                  25.00'
+  ].join('\n');
+
+  const res = C.parseReceiptText(raw);
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.items.length, 4, 'totals and payment lines are not food');
+
+  const names = res.items.map(i => i.name);
+  assert.deepStrictEqual(names, ['AYAM BERSIH 500G', 'BAYAM', 'SUSU SEGAR 1L', 'ROTI GANDUM']);
+  assert.strictEqual(res.items[0].price, 9.8);
+  assert.strictEqual(res.items[0].category, 'poultry');
+  assert.strictEqual(res.items[1].category, 'greens');
+  assert.strictEqual(res.items[2].category, 'dairy');
+  assert.strictEqual(res.items[3].category, 'bakery');
+});
+
+test('parseReceiptText handles comma decimals, RM prefix and leading quantities', () => {
+  const res = C.parseReceiptText('2 x TELUR AA   RM 12,90\n1 Beras 5kg 28.00');
+  assert.strictEqual(res.items.length, 2);
+  assert.strictEqual(res.items[0].name, 'TELUR AA');
+  assert.strictEqual(res.items[0].qty, '2 x');
+  assert.strictEqual(res.items[0].price, 12.9);
+  assert.strictEqual(res.items[1].name, 'Beras 5kg');
+  assert.strictEqual(res.items[1].price, 28);
+});
+
+test('parseReceiptText returns ok:false on text with no prices, never throws', () => {
+  const res = C.parseReceiptText('hello there\nnothing numeric here');
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.items.length, 0);
+  assert.doesNotThrow(() => C.parseReceiptText(null));
+  assert.doesNotThrow(() => C.parseReceiptText(''));
+});
+
+test('guessCategory covers Malay and English, falls back to other', () => {
+  assert.strictEqual(C.guessCategory('Ayam Bersih'), 'poultry');
+  assert.strictEqual(C.guessCategory('CHICKEN BREAST'), 'poultry');
+  assert.strictEqual(C.guessCategory('Ikan Kembung'), 'fish');
+  assert.strictEqual(C.guessCategory('Susu Segar'), 'dairy');
+  assert.strictEqual(C.guessCategory('Telur AA'), 'eggs');
+  assert.strictEqual(C.guessCategory('Bateri AA'), 'other');
+});
+
+// ---- real input: the pantry a visitor builds persists ----
+test('serializePantry / deserializePantry round-trips a real pantry', () => {
+  const items = C.parseReceiptText('AYAM 9.80\nBAYAM 3.20').items;
+  const pantry = C.buildPantry(items);
+  const restored = C.deserializePantry(C.serializePantry(pantry));
+
+  assert.strictEqual(restored.length, 2);
+  assert.strictEqual(restored[0].name, 'AYAM');
+  assert.strictEqual(restored[0].price, 9.8);
+  assert.strictEqual(restored[0].status, 'soon', 'chicken is 2 days from expiry by design');
+  assert.strictEqual(restored[0].storage, C.DEFAULT_STORAGE);
+});
+
+test('deserializePantry survives corrupt or foreign payloads', () => {
+  assert.strictEqual(C.deserializePantry(null), null);
+  assert.strictEqual(C.deserializePantry('not json'), null);
+  assert.strictEqual(C.deserializePantry('{"v":99,"items":[]}'), null);
+  assert.strictEqual(C.deserializePantry('{"v":1,"items":"nope"}'), null);
+  const junk = C.deserializePantry('{"v":1,"items":[{"name":"Ayam","price":"x"},null]}');
+  assert.strictEqual(junk.length, 1, 'entries without a name are dropped, the rest survive');
+  assert.strictEqual(junk[0].price, 0);
+});
+
+test('dispositions survive a save/load cycle', () => {
+  let pantry = C.buildPantry(C.parseReceiptText('AYAM 9.80\nBAYAM 3.20').items);
+  pantry = C.markUsed(pantry, pantry[0].id);
+  const restored = C.deserializePantry(C.serializePantry(pantry));
+  assert.strictEqual(restored[0].disposition, 'used');
+  assert.strictEqual(C.summary(restored).used, 1);
+});

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Simpan — receipt-to-pantry</title>
+<title>Simpan — receipt → pantry</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,16 +16,40 @@
     <div id="banner" class="banner"></div>
 
     <section id="scan">
-      <button class="scan-btn" id="cameraBtn">
-        &#128247; Photograph a receipt
-        <span class="hint">or pick a photo from your gallery</span>
-      </button>
-      <input type="file" id="fileInput" accept="image/*,.heic,.heif,.avif" hidden>
-      <button class="secondary" id="sampleBtn" style="margin-top:8px">Use sample receipt (offline demo)</button>
+      <textarea id="receiptText" rows="5" spellcheck="false"
+        placeholder="Paste your receipt text here, one item per line, e.g.
+
+AYAM BERSIH 500G        9.80
+BAYAM                    3.20
+SUSU SEGAR 1L            7.50
+ROTI GANDUM              4.50"></textarea>
+      <button class="scan-btn" id="readBtn">Read these lines</button>
+
+      <div class="row">
+        <button class="secondary" id="addBtn">+ Add one item</button>
+        <button class="secondary" id="photoBtn">&#128247; Check a photo</button>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+
+      <div id="addForm" class="addform" hidden>
+        <input id="newName" placeholder="Item name (e.g. Telur AA)" autocomplete="off">
+        <div class="row">
+          <input id="newQty" placeholder="Qty (e.g. 10 pcs)" autocomplete="off">
+          <input id="newPrice" placeholder="Price RM" inputmode="decimal" autocomplete="off">
+        </div>
+        <div class="row">
+          <select id="newStorage">
+            <option value="fridge">fridge</option>
+            <option value="pantry">pantry</option>
+            <option value="freezer">freezer</option>
+          </select>
+          <button class="scan-btn" id="saveItemBtn">Save item</button>
+        </div>
+      </div>
     </section>
 
     <section id="pantry">
-      <h2>Pantry</h2>
+      <h2>Pantry <span class="count" id="pantryCount"></span></h2>
       <div class="card" id="pantryCard"></div>
     </section>
 
@@ -35,16 +59,17 @@
     </section>
 
     <section id="ledger">
-      <h2>This week</h2>
+      <h2>Running total</h2>
       <div class="ledger">
         <div class="stat rescued"><div class="v" id="rescuedRM">RM 0.00</div><div class="k">rescued</div></div>
         <div class="stat wasted"><div class="v" id="wastedRM">RM 0.00</div><div class="k">wasted</div></div>
         <div class="stat"><div class="v" id="remainingCount">0</div><div class="k">left</div></div>
       </div>
+      <button class="linkbtn" id="clearBtn">Clear my pantry</button>
     </section>
   </main>
 
-  <div class="footer">offline-first demo · no network, no accounts · Simpan</div>
+  <div class="footer">your data stays on this device · no network, no account</div>
 </div>
 
 <script src="core.js"></script>
@@ -52,7 +77,7 @@
 (function () {
   'use strict';
   var C = window.SimpanCore;
-  var pantry = [];                       // built pantry items
+  var pantry = [];
   var banner = { kind: 'ok', text: '' };
 
   function $(id) { return document.getElementById(id); }
@@ -70,6 +95,17 @@
   }
   function clearBanner() { $('banner').className = 'banner'; banner = { kind: 'ok', text: '' }; }
 
+  // ---- persistence: whatever the visitor enters is theirs, kept on the device ----
+  function save() {
+    try { localStorage.setItem(C.STORAGE_KEY, C.serializePantry(pantry)); } catch (e) { /* private mode */ }
+  }
+  function load() {
+    try {
+      var restored = C.deserializePantry(localStorage.getItem(C.STORAGE_KEY));
+      if (restored) pantry = restored;
+    } catch (e) { pantry = []; }
+  }
+
   function chip(it) {
     if (it.disposition === 'used') return '<span class="chip used">used</span>';
     if (it.disposition === 'tossed') return '<span class="chip tossed">tossed</span>';
@@ -78,16 +114,18 @@
 
   function renderPantry() {
     var card = $('pantryCard');
+    $('pantryCount').textContent = pantry.length ? '(' + pantry.length + ')' : '';
     if (pantry.length === 0) {
       card.innerHTML = '<div class="empty"><span class="big">&#129534;</span>' +
-        'Your pantry is empty.<br>Tap <b>Use sample receipt</b> (or photograph one) to fill it.</div>';
+        'Your pantry is empty.<br>Paste a receipt above, or add one item to start.</div>';
       return;
     }
     var html = '';
     pantry.forEach(function (it) {
       html += '<div class="item">' +
         '<div class="info"><div class="name">' + esc(it.name) + '</div>' +
-        '<div class="meta">' + esc(it.qty + (it.unit ? ' ' + it.unit : '')) + ' · ' + esc(it.category) + '</div>' +
+        '<div class="meta">' + esc(it.qty || '') + (it.unit ? ' ' + esc(it.unit) : '') +
+        (it.qty || it.unit ? ' · ' : '') + esc(it.category) + '</div>' +
         chip(it) + storeCtl(it) + '</div>' +
         '<div class="price">RM ' + it.price.toFixed(2) + '</div></div>';
     });
@@ -95,17 +133,15 @@
     Array.prototype.forEach.call(card.querySelectorAll('.store button'), function (b) {
       b.addEventListener('click', function () {
         pantry = C.setStorage(pantry, b.getAttribute('data-id'), b.getAttribute('data-storage'));
-        render();
+        save(); render();
       });
     });
   }
 
-  // Where the food is kept — this is what changes how long it lasts.
   function storeCtl(it) {
     if (it.disposition !== null) return '';
-    var order = C.STORAGES;
     var html = '<div class="store">';
-    order.forEach(function (s) {
+    C.STORAGES.forEach(function (s) {
       html += '<button data-id="' + esc(it.id) + '" data-storage="' + esc(s) + '"' +
         (it.storage === s ? ' class="on"' : '') + '>' + esc(s) + '</button>';
     });
@@ -116,7 +152,7 @@
     var card = $('useFirstCard');
     var list = C.useFirstList(pantry);
     if (list.length === 0) {
-      card.innerHTML = '<div class="empty">Nothing to use up. &#127881;</div>';
+      card.innerHTML = '<div class="empty">Nothing waiting to be used.</div>';
       return;
     }
     var html = '';
@@ -147,97 +183,125 @@
 
   function render() { renderPantry(); renderUseFirst(); renderLedger(); }
 
-  function loadSample() {
-    pantry = C.buildPantry(C.DEMO_RECEIPT);
-    showBanner('ok', 'Loaded the sample receipt — 8 items in your pantry.');
-    render();
+  // ---- real input path 1: pasted receipt text ----
+  function readText() {
+    var raw = $('receiptText').value || '';
+    if (!raw.trim()) { showBanner('err', 'Nothing to read yet — paste the text from your receipt first.'); return; }
+    var res = C.parseReceiptText(raw);
+    if (!res.ok) {
+      showBanner('err', 'No priced lines found. Make sure each line ends with the amount, e.g. "BAYAM 3.20".');
+      return;
+    }
+    addItems(res.items);
+    showBanner('ok', 'Added ' + res.items.length + ' item' + (res.items.length === 1 ? '' : 's') +
+      ' from your receipt.' + (res.skipped ? ' (' + res.skipped + ' other line' + (res.skipped === 1 ? '' : 's') + ' skipped)' : ''));
+    $('receiptText').value = '';
   }
 
-  function resetPantry() {
-    pantry = [];
-    clearBanner();
-    render();
+  function addItems(rawItems) {
+    var merged = pantry.concat(C.buildPantry(rawItems));
+    pantry = merged.map(function (it, i) { it.id = 'item-' + (i + 1); return it; });
+    save(); render();
+  }
+
+  // ---- real input path 2: one item by hand ----
+  function saveOne() {
+    var name = ($('newName').value || '').trim();
+    var price = parseFloat(($('newPrice').value || '').replace(',', '.'));
+    if (!name) { showBanner('err', 'Give the item a name first.'); return; }
+    if (!isFinite(price) || price < 0) { showBanner('err', 'Enter the price in ringgit, e.g. 3.20.'); return; }
+    addItems([{
+      name: name,
+      qty: ($('newQty').value || '').trim(),
+      unit: '',
+      price: Math.round(price * 100) / 100,
+      category: C.guessCategory(name),
+      storage: $('newStorage').value,
+      purchasedDaysAgo: 0
+    }]);
+    $('newName').value = ''; $('newQty').value = ''; $('newPrice').value = '';
+    $('addForm').hidden = true;
+    showBanner('ok', name + ' added to the ' + $('newStorage').value + '.');
   }
 
   function markItem(id, act) {
     pantry = act === 'tossed' ? C.markTossed(pantry, id) : C.markUsed(pantry, id);
     var it = pantry.filter(function (x) { return x.id === id; })[0];
-    if (it) showBanner('ok', esc(it.name) + ' marked ' + (act === 'tossed' ? 'tossed' : 'used') + '.');
-    render();
+    if (it) showBanner('ok', it.name + ' marked ' + (act === 'tossed' ? 'tossed' : 'used') + '.');
+    save(); render();
   }
 
-  // ---- receipt photo pipeline (shared by real input and the test hook) ----
-  function ingestBlob(name, mime, size, blob) {
-    // read first 32 bytes for sniffing
-    return new Promise(function (resolve) {
-      var reader = new FileReader();
-      reader.onerror = function () { resolve({ ok: false, code: 'empty', reason: 'Could not read that file.' }); };
-      reader.onload = function () {
-        var first = new Uint8Array(reader.result.slice(0, 32));
-        var meta = C.validateReceiptFile({ name: name, mime: mime, size: size, firstBytes: first });
-        if (!meta.ok) { resolve(meta); return; }
+  // ---- photo: validated for real, but no OCR engine ships with this build ----
+  function checkPhoto(file) {
+    var reader = new FileReader();
+    reader.onerror = function () { showBanner('err', 'Could not read that file.'); };
+    reader.onload = function () {
+      var first = new Uint8Array(reader.result.slice(0, 32));
+      var meta = C.validateReceiptFile({ name: file.name, mime: file.type, size: file.size, firstBytes: first });
+      if (!meta.ok) { showBanner('err', meta.reason); return; }
 
-        // Looks like an image — actually decode it to catch corrupt/small files.
-        var url = URL.createObjectURL(blob);
-        var img = new Image();
-        var done = false;
-        img.onload = function () {
-          if (done) return; done = true;
-          URL.revokeObjectURL(url);
-          if (img.naturalWidth < C.MIN_DIM || img.naturalHeight < C.MIN_DIM) {
-            resolve({ ok: false, code: 'too_small', reason: 'That image is too small/blurry to read as a receipt — retake it closer and straighter.' });
-          } else {
-            // Offline demo: no OCR engine, so fall back to the bundled sample.
-            pantry = C.buildPantry(C.DEMO_RECEIPT);
-            resolve({ ok: true, code: 'offline_fallback', reason: 'Offline demo — I can\u2019t read text from the photo, so I loaded the sample receipt.' });
-          }
-        };
-        img.onerror = function () {
-          if (done) return; done = true;
-          URL.revokeObjectURL(url);
-          resolve({ ok: false, code: 'corrupt', reason: 'This image is corrupted or unreadable — try another photo.' });
-        };
-        img.src = url;
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        if (img.naturalWidth < C.MIN_DIM || img.naturalHeight < C.MIN_DIM) {
+          showBanner('err', 'That image is too small to read — move closer and retake it.');
+          return;
+        }
+        showBanner('warn', 'Photo looks good (' + img.naturalWidth + '×' + img.naturalHeight +
+          '). This build has no on-device text reader, so copy the text from the photo — ' +
+          'iPhone: open the photo → select text → copy. Android: Google Lens → Copy text — then paste it above.');
+        $('receiptText').focus();
       };
-      reader.readAsArrayBuffer(blob);
-    });
-  }
-
-  function ingestFile(file) {
-    return ingestBlob(file.name, file.type, file.size, file);
-  }
-
-  function handleFile(file) {
-    ingestFile(file).then(function (r) {
-      showBanner(r.ok ? 'warn' : 'err', r.reason);
-      render();
-    });
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        showBanner('err', 'That image is corrupted or unreadable — try another photo.');
+      };
+      img.src = url;
+    };
+    reader.readAsArrayBuffer(file);
   }
 
   // --- wiring ---
-  $('sampleBtn').addEventListener('click', loadSample);
-  $('cameraBtn').addEventListener('click', function () { $('fileInput').click(); });
+  $('readBtn').addEventListener('click', readText);
+  $('addBtn').addEventListener('click', function () {
+    $('addForm').hidden = !$('addForm').hidden;
+    if (!$('addForm').hidden) $('newName').focus();
+  });
+  $('saveItemBtn').addEventListener('click', saveOne);
+  $('photoBtn').addEventListener('click', function () { $('fileInput').click(); });
   $('fileInput').addEventListener('change', function (e) {
     var f = e.target.files && e.target.files[0];
-    if (f) handleFile(f);
-    e.target.value = '';   // allow re-picking the same file
+    if (f) checkPhoto(f);
+    e.target.value = '';
+  });
+  $('clearBtn').addEventListener('click', function () {
+    if (!pantry.length) { showBanner('warn', 'Your pantry is already empty.'); return; }
+    if (!window.confirm('Clear all ' + pantry.length + ' items from this device?')) return;
+    pantry = []; save(); clearBanner(); render();
+    showBanner('ok', 'Pantry cleared.');
   });
 
-  // Test hook: lets the smoke test drive hostile files through the SAME path.
+  // Test hook — drives the same code paths a visitor hits.
   window.__simpan = {
-    ingest: function (fixture) {
+    readText: readText,
+    addItems: addItems,
+    checkPhotoMeta: function (fixture) {
       var bytes = fixture.bytes || new Uint8Array(0);
-      var blob = new Blob([bytes], { type: fixture.mime || 'application/octet-stream' });
-      return ingestBlob(fixture.name || 'photo.jpg', fixture.mime || '', fixture.size != null ? fixture.size : bytes.length, blob);
+      return C.validateReceiptFile({
+        name: fixture.name || 'photo.jpg', mime: fixture.mime || '',
+        size: fixture.size != null ? fixture.size : bytes.length,
+        firstBytes: bytes.slice(0, 32)
+      });
     },
-    loadSample: loadSample,
-    reset: resetPantry,
+    reset: function () { pantry = []; save(); clearBanner(); render(); },
     mark: markItem,
     snapshot: function () {
       return { pantry: pantry, useFirst: C.useFirstList(pantry), summary: C.summary(pantry), banner: banner };
     }
   };
 
+  load();
   render();
 })();
 </script>

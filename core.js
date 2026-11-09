@@ -246,6 +246,141 @@
     return { ok: true, kind: kind };
   }
 
+  // ---- real input: parse receipt text (no OCR, no network, no fake data) ----
+
+  var CATEGORY_WORDS = [
+    ['poultry', ['ayam', 'chicken', 'turkey', 'itik', 'duck']],
+    ['fish',    ['ikan', 'fish', 'salmon', 'tuna', 'sotong', 'udang', 'prawn', 'squid', 'seafood']],
+    ['meat',    ['daging', 'beef', 'mutton', 'kambing', 'lamb', 'pork', 'babi', 'mince']],
+    ['greens',  ['bayam', 'spinach', 'kangkung', 'sawi', 'lettuce', 'salad', 'daun', 'herb',
+                 'cilantro', 'kailan', 'broccoli']],
+    ['veg',     ['tomato', 'carrot', 'lobak', 'kentang', 'potato', 'onion', 'bawang', 'cabbage',
+                 'kubis', 'cucumber', 'timun', 'capsicum', 'cili', 'chilli', 'terung', 'lady']],
+    ['fruit',   ['pisang', 'banana', 'apple', 'epal', 'orange', 'oren', 'mango', 'mangga',
+                 'grape', 'anggur', 'watermelon', 'tembikai', 'nanas', 'pineapple', 'kiwi']],
+    ['bakery',  ['roti', 'bread', 'bun', 'cake', 'kek', 'biskut', 'biscuit', 'croissant']],
+    ['dairy',   ['susu', 'milk', 'cheese', 'keju', 'yogurt', 'yoghurt', 'butter', 'mentega',
+                 'cream', 'krim']],
+    ['eggs',    ['telur', 'egg']],
+    ['frozen',  ['frozen', 'sejuk beku', 'ice cream', 'ais krim', 'nugget', 'dumpling']],
+    ['drinks',  ['air', 'water', 'juice', 'jus', 'kopi', 'coffee', 'teh', 'tea', 'soda',
+                 'coke', 'drink', 'minuman']],
+    ['dry',     ['beras', 'rice', 'tepung', 'flour', 'gula', 'sugar', 'garam', 'salt',
+                 'minyak', 'oil', 'sos', 'sauce', 'mee', 'noodle', 'pasta', 'bihun', 'serbuk']]
+  ];
+
+  // Best-effort category from an item name. Malay and English both covered, because
+  // Malaysian receipts are usually a mix.
+  // Word-boundary matching, not substring: "BAYAM" (spinach) must not match "AYAM"
+  // (chicken), which a naive indexOf does.
+  function guessCategory(name) {
+    var n = String(name || '').toLowerCase();
+    for (var i = 0; i < CATEGORY_WORDS.length; i++) {
+      var words = CATEGORY_WORDS[i][1];
+      for (var j = 0; j < words.length; j++) {
+        var w = words[j].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var re = new RegExp('(^|[^a-z])' + w + '([^a-z]|$)', 'i');
+        if (re.test(n)) return CATEGORY_WORDS[i][0];
+      }
+    }
+    return 'other';
+  }
+
+  // Lines that are receipt furniture, not food.
+  var NOISE = /^(sub\s*-?total|total|jumlah|grand total|sst|gst|tax|cukai|service charge|rounding|round off|change|baki|tunai|cash|card|visa|mastercard|debit|credit|payment|bayaran|rebate|discount|diskaun|voucher|thank|terima kasih|welcome|selamat datang|receipt|resit|invoice|invois|date|tarikh|time|masa|cashier|kasir|table|meja|order|qty|item|description|harga|amount|jumlah bayaran)\b/i;
+
+  // A receipt line looks like "<name> .... 12.90" (or 12,90 with a comma decimal).
+  var PRICE_AT_END = /(?:rm\s*)?(\d{1,4}(?:[.,]\d{3})*[.,]\d{2})\s*\*?\s*$/i;
+
+  function parseReceiptText(text) {
+    var NL = String.fromCharCode(10);
+    var CR = String.fromCharCode(13);
+    var lines = String(text || '').split(CR).join(NL).split(NL);
+    var items = [];
+    var skipped = 0;
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/\s+/g, ' ').trim();
+      if (!line) continue;
+
+      var m = line.match(PRICE_AT_END);
+      if (!m) { skipped++; continue; }
+
+      var rawPrice = m[1];
+      // 1,234.50 -> 1234.50 ; 12,90 -> 12.90
+      var priceStr = rawPrice.replace(/,(?=\d{3}\b)/g, '').replace(',', '.');
+      var price = parseFloat(priceStr);
+      if (!isFinite(price) || price <= 0) { skipped++; continue; }
+
+      var name = line.slice(0, m.index).trim();
+      if (!name) { skipped++; continue; }
+      if (NOISE.test(name)) { skipped++; continue; }
+      if (name.length > 70) name = name.slice(0, 70).trim();
+
+      // leading quantity: "2 x Nasi Lemak", "1 Banana", "3 bungkus"
+      var qty = '';
+      var qm = name.match(/^(\d+(?:\.\d+)?)\s*(x|×|pcs?|biji|bush|bungkus|paket|kotak|botol|kg|g)?\b\s*(.*)$/i);
+      if (qm && qm[3]) {
+        qty = qm[1] + (qm[2] ? ' ' + qm[2].toLowerCase() : '');
+        name = qm[3].trim();
+      }
+
+      items.push({
+        name: name.replace(/\s*\*+$/, '').trim(),
+        qty: qty,
+        unit: '',
+        price: Math.round(price * 100) / 100,
+        category: guessCategory(name),
+        purchasedDaysAgo: 0
+      });
+    }
+
+    return { items: items, skipped: skipped, ok: items.length > 0 };
+  }
+
+  // ---- persistence: the pantry a visitor actually builds ----
+
+  var STORAGE_KEY = 'simpan.v1';
+
+  function serializePantry(pantry) {
+    return JSON.stringify({
+      v: 1,
+      savedAt: new Date().toISOString(),
+      items: (pantry || []).map(function (it) {
+        return {
+          id: it.id, name: it.name, category: it.category, qty: it.qty, unit: it.unit,
+          price: it.price, shelfDays: it.shelfDays, storage: it.storage,
+          purchasedDaysAgo: it.purchasedDaysAgo, disposition: it.disposition
+        };
+      })
+    });
+  }
+
+  // Returns a rebuilt pantry, or null when the payload is missing/corrupt.
+  function deserializePantry(json) {
+    if (!json) return null;
+    var parsed;
+    try { parsed = JSON.parse(json); } catch (e) { return null; }
+    if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.items)) return null;
+    var clean = parsed.items.filter(function (it) {
+      return it && typeof it.name === 'string' && it.name.length > 0;
+    }).map(function (it) {
+      return {
+        id: it.id, name: it.name, category: it.category, qty: it.qty, unit: it.unit,
+        price: typeof it.price === 'number' ? it.price : 0,
+        shelfDays: typeof it.shelfDays === 'number' ? it.shelfDays : null,
+        storage: it.storage, purchasedDaysAgo: it.purchasedDaysAgo || 0,
+        disposition: it.disposition === 'used' || it.disposition === 'tossed' ? it.disposition : null
+      };
+    });
+    var built = buildPantry(clean);
+    return built.map(function (it, i) {
+      it.id = 'item-' + (i + 1);
+      it.disposition = clean[i].disposition;
+      return it;
+    });
+  }
+
   return {
     MAX_BYTES: MAX_BYTES,
     MIN_DIM: MIN_DIM,
@@ -253,6 +388,7 @@
     STORAGE_DAYS: STORAGE_DAYS,
     STORAGES: STORAGES,
     DEFAULT_STORAGE: DEFAULT_STORAGE,
+    STORAGE_KEY: STORAGE_KEY,
     DEMO_RECEIPT: DEMO_RECEIPT,
     shelfDaysFor: shelfDaysFor,
     daysLeftOf: daysLeftOf,
@@ -266,6 +402,10 @@
     effectiveShelfDays: effectiveShelfDays,
     summary: summary,
     sniffImage: sniffImage,
-    validateReceiptFile: validateReceiptFile
+    validateReceiptFile: validateReceiptFile,
+    guessCategory: guessCategory,
+    parseReceiptText: parseReceiptText,
+    serializePantry: serializePantry,
+    deserializePantry: deserializePantry
   };
 }));

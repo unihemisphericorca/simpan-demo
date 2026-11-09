@@ -133,3 +133,28 @@ h2 { font-size: 15px; margin: 0 0 6px; }
   padding: 3px 7px; border-radius: 20px; cursor: pointer; line-height: 1.4;
 }
 .store button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---- real-input UI: pasted receipt text, manual add, clear ---- */
+#receiptText {
+  width: 100%; box-sizing: border-box; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink); background: #fff; border: 1.5px dashed var(--accent);
+  border-radius: 12px; padding: 12px; resize: vertical; min-height: 92px;
+}
+#receiptText::placeholder { color: #9aa7a0; }
+.row { display: flex; gap: 8px; margin-top: 8px; }
+.row > * { flex: 1; }
+.secondary {
+  background: #fff; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 100px; padding: 10px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.addform { margin-top: 10px; display: grid; gap: 8px; }
+.addform input, .addform select {
+  width: 100%; box-sizing: border-box; font-size: 13.5px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+}
+.count { font-size: 13px; font-weight: 500; color: var(--muted); }
+.linkbtn {
+  margin-top: 10px; background: none; border: none; color: var(--muted);
+  font-size: 12px; text-decoration: underline; cursor: pointer; padding: 4px 0;
+}
+[hidden] { display: none !important; }
