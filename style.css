@@ -1,0 +1,126 @@
+:root {
+  --bg: #f6f3ee;
+  --card: #ffffff;
+  --ink: #1c1b18;
+  --muted: #6f6a61;
+  --accent: #2e7d5b;
+  --accent-soft: #e4f0ea;
+  --danger: #b3402f;
+  --danger-soft: #f9e8e5;
+  --warn: #b97a1f;
+  --warn-soft: #fbf0de;
+  --line: #e7e2d9;
+  --radius: 14px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+.phone {
+  max-width: 460px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+header {
+  padding: 18px 18px 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+header h1 { font-size: 20px; margin: 0; letter-spacing: -0.2px; }
+header .sub { color: var(--muted); font-size: 12px; }
+main { flex: 1; padding: 4px 18px 24px; }
+section { margin: 12px 0; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.banner {
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 0 0 12px;
+  display: none;
+}
+.banner.show { display: block; }
+.banner.ok   { background: var(--accent-soft); color: #1f5c40; border: 1px solid #c4ded2; }
+.banner.warn { background: var(--warn-soft);  color: #7c520f; border: 1px solid #ecd9b2; }
+.banner.err  { background: var(--danger-soft); color: #8a2f22; border: 1px solid #f0c8c0; }
+
+button {
+  font: inherit;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  width: 100%;
+}
+button.secondary {
+  background: #fff;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+button:active { transform: translateY(1px); }
+button:disabled { background: #c7c3ba; cursor: not-allowed; }
+
+.scan-btn {
+  border: 2px dashed var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 26px 16px;
+  font-size: 15px;
+}
+.scan-btn .hint { display: block; font-weight: 400; font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.item:last-child { border-bottom: 0; }
+.item .info { flex: 1; }
+.item .name { font-weight: 600; font-size: 14px; }
+.item .meta { color: var(--muted); font-size: 12px; }
+.item .price { font-weight: 600; font-size: 14px; white-space: nowrap; }
+.item .actions { display: flex; gap: 6px; }
+.item .actions button {
+  width: auto; padding: 6px 10px; font-size: 12px;
+}
+.chip {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+}
+.chip.fresh   { background: var(--accent-soft); color: #1f5c40; }
+.chip.soon    { background: var(--warn-soft);  color: #7c520f; }
+.chip.expired { background: var(--danger-soft); color: #8a2f22; }
+.chip.used    { background: #ecebe7; color: var(--muted); }
+.chip.tossed  { background: #ecebe7; color: var(--muted); }
+
+.ledger { display: flex; gap: 10px; }
+.ledger .stat { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; text-align: center; }
+.ledger .stat .v { font-size: 20px; font-weight: 700; }
+.ledger .stat .k { font-size: 11px; color: var(--muted); }
+.ledger .stat.rescued .v { color: var(--accent); }
+.ledger .stat.wasted .v { color: var(--danger); }
+
+h2 { font-size: 15px; margin: 0 0 6px; }
+.empty {
+  text-align: center; color: var(--muted); padding: 22px 10px; font-size: 13px; line-height: 1.5;
+}
+.empty .big { font-size: 30px; display: block; margin-bottom: 6px; }
+.rank { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
+.footer { color: var(--muted); font-size: 11px; text-align: center; padding: 10px; }

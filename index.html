@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simpan — receipt-to-pantry</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="phone">
+  <header>
+    <div><h1>Simpan</h1><span class="sub">receipt &rarr; pantry, so food stops hiding</span></div>
+  </header>
+
+  <main>
+    <div id="banner" class="banner"></div>
+
+    <section id="scan">
+      <button class="scan-btn" id="cameraBtn">
+        &#128247; Photograph a receipt
+        <span class="hint">or pick a photo from your gallery</span>
+      </button>
+      <input type="file" id="fileInput" accept="image/*,.heic,.heif,.avif" hidden>
+      <button class="secondary" id="sampleBtn" style="margin-top:8px">Use sample receipt (offline demo)</button>
+    </section>
+
+    <section id="pantry">
+      <h2>Pantry</h2>
+      <div class="card" id="pantryCard"></div>
+    </section>
+
+    <section id="usefirst">
+      <h2>Use this first</h2>
+      <div class="card" id="useFirstCard"></div>
+    </section>
+
+    <section id="ledger">
+      <h2>This week</h2>
+      <div class="ledger">
+        <div class="stat rescued"><div class="v" id="rescuedRM">RM 0.00</div><div class="k">rescued</div></div>
+        <div class="stat wasted"><div class="v" id="wastedRM">RM 0.00</div><div class="k">wasted</div></div>
+        <div class="stat"><div class="v" id="remainingCount">0</div><div class="k">left</div></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="footer">offline-first demo · no network, no accounts · Simpan</div>
+</div>
+
+<script src="core.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = window.SimpanCore;
+  var pantry = [];                       // built pantry items
+  var banner = { kind: 'ok', text: '' };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function showBanner(kind, text) {
+    banner = { kind: kind, text: text };
+    var el = $('banner');
+    el.className = 'banner show ' + (kind === 'ok' ? 'ok' : kind === 'warn' ? 'warn' : 'err');
+    el.textContent = text;
+  }
+  function clearBanner() { $('banner').className = 'banner'; banner = { kind: 'ok', text: '' }; }
+
+  function chip(it) {
+    if (it.disposition === 'used') return '<span class="chip used">used</span>';
+    if (it.disposition === 'tossed') return '<span class="chip tossed">tossed</span>';
+    return '<span class="chip ' + it.status + '">' + esc(it.expiryLabel) + '</span>';
+  }
+
+  function renderPantry() {
+    var card = $('pantryCard');
+    if (pantry.length === 0) {
+      card.innerHTML = '<div class="empty"><span class="big">&#129534;</span>' +
+        'Your pantry is empty.<br>Tap <b>Use sample receipt</b> (or photograph one) to fill it.</div>';
+      return;
+    }
+    var html = '';
+    pantry.forEach(function (it) {
+      html += '<div class="item">' +
+        '<div class="info"><div class="name">' + esc(it.name) + '</div>' +
+        '<div class="meta">' + esc(it.qty + (it.unit ? ' ' + it.unit : '')) + ' · ' + esc(it.category) + '</div>' +
+        chip(it) + '</div>' +
+        '<div class="price">RM ' + it.price.toFixed(2) + '</div></div>';
+    });
+    card.innerHTML = html;
+  }
+
+  function renderUseFirst() {
+    var card = $('useFirstCard');
+    var list = C.useFirstList(pantry);
+    if (list.length === 0) {
+      card.innerHTML = '<div class="empty">Nothing to use up. &#127881;</div>';
+      return;
+    }
+    var html = '';
+    list.forEach(function (it, i) {
+      html += '<div class="item">' +
+        '<div class="rank">' + (i + 1) + '</div>' +
+        '<div class="info"><div class="name">' + esc(it.name) + '</div>' +
+        '<div class="meta">' + esc(it.expiryLabel) + '</div></div>' +
+        '<div class="actions">' +
+          '<button data-id="' + esc(it.id) + '" data-act="used" title="I ate it">&#10003; used</button>' +
+          '<button data-id="' + esc(it.id) + '" data-act="tossed" title="It went off">&#10007; tossed</button>' +
+        '</div></div>';
+    });
+    card.innerHTML = html;
+    Array.prototype.forEach.call(card.querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () {
+        markItem(b.getAttribute('data-id'), b.getAttribute('data-act'));
+      });
+    });
+  }
+
+  function renderLedger() {
+    var s = C.summary(pantry);
+    $('rescuedRM').textContent = 'RM ' + s.rescuedRM.toFixed(2);
+    $('wastedRM').textContent = 'RM ' + s.wastedRM.toFixed(2);
+    $('remainingCount').textContent = String(s.remaining);
+  }
+
+  function render() { renderPantry(); renderUseFirst(); renderLedger(); }
+
+  function loadSample() {
+    pantry = C.buildPantry(C.DEMO_RECEIPT);
+    showBanner('ok', 'Loaded the sample receipt — 8 items in your pantry.');
+    render();
+  }
+
+  function resetPantry() {
+    pantry = [];
+    clearBanner();
+    render();
+  }
+
+  function markItem(id, act) {
+    pantry = act === 'tossed' ? C.markTossed(pantry, id) : C.markUsed(pantry, id);
+    var it = pantry.filter(function (x) { return x.id === id; })[0];
+    if (it) showBanner('ok', esc(it.name) + ' marked ' + (act === 'tossed' ? 'tossed' : 'used') + '.');
+    render();
+  }
+
+  // ---- receipt photo pipeline (shared by real input and the test hook) ----
+  function ingestBlob(name, mime, size, blob) {
+    // read first 32 bytes for sniffing
+    return new Promise(function (resolve) {
+      var reader = new FileReader();
+      reader.onerror = function () { resolve({ ok: false, code: 'empty', reason: 'Could not read that file.' }); };
+      reader.onload = function () {
+        var first = new Uint8Array(reader.result.slice(0, 32));
+        var meta = C.validateReceiptFile({ name: name, mime: mime, size: size, firstBytes: first });
+        if (!meta.ok) { resolve(meta); return; }
+
+        // Looks like an image — actually decode it to catch corrupt/small files.
+        var url = URL.createObjectURL(blob);
+        var img = new Image();
+        var done = false;
+        img.onload = function () {
+          if (done) return; done = true;
+          URL.revokeObjectURL(url);
+          if (img.naturalWidth < C.MIN_DIM || img.naturalHeight < C.MIN_DIM) {
+            resolve({ ok: false, code: 'too_small', reason: 'That image is too small/blurry to read as a receipt — retake it closer and straighter.' });
+          } else {
+            // Offline demo: no OCR engine, so fall back to the bundled sample.
+            pantry = C.buildPantry(C.DEMO_RECEIPT);
+            resolve({ ok: true, code: 'offline_fallback', reason: 'Offline demo — I can\u2019t read text from the photo, so I loaded the sample receipt.' });
+          }
+        };
+        img.onerror = function () {
+          if (done) return; done = true;
+          URL.revokeObjectURL(url);
+          resolve({ ok: false, code: 'corrupt', reason: 'This image is corrupted or unreadable — try another photo.' });
+        };
+        img.src = url;
+      };
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  function ingestFile(file) {
+    return ingestBlob(file.name, file.type, file.size, file);
+  }
+
+  function handleFile(file) {
+    ingestFile(file).then(function (r) {
+      showBanner(r.ok ? 'warn' : 'err', r.reason);
+      render();
+    });
+  }
+
+  // --- wiring ---
+  $('sampleBtn').addEventListener('click', loadSample);
+  $('cameraBtn').addEventListener('click', function () { $('fileInput').click(); });
+  $('fileInput').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (f) handleFile(f);
+    e.target.value = '';   // allow re-picking the same file
+  });
+
+  // Test hook: lets the smoke test drive hostile files through the SAME path.
+  window.__simpan = {
+    ingest: function (fixture) {
+      var bytes = fixture.bytes || new Uint8Array(0);
+      var blob = new Blob([bytes], { type: fixture.mime || 'application/octet-stream' });
+      return ingestBlob(fixture.name || 'photo.jpg', fixture.mime || '', fixture.size != null ? fixture.size : bytes.length, blob);
+    },
+    loadSample: loadSample,
+    reset: resetPantry,
+    mark: markItem,
+    snapshot: function () {
+      return { pantry: pantry, useFirst: C.useFirstList(pantry), summary: C.summary(pantry), banner: banner };
+    }
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>
